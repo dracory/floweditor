@@ -1861,6 +1861,24 @@ export default class Drawflow {
     this.import(this.drawflow, false);
   }
 
+  renameModule(oldName, newName) {
+    oldName = String(oldName).trim();
+    newName = String(newName).trim();
+    if (newName === '' || newName === oldName || !this.drawflow.drawflow[oldName] || this.drawflow.drawflow[newName]) {
+      return false;
+    }
+    const modules = {};
+    for (const key in this.drawflow.drawflow) {
+      modules[key === oldName ? newName : key] = this.drawflow.drawflow[key];
+    }
+    this.drawflow.drawflow = modules;
+    if (this.module === oldName) {
+      this.module = newName;
+    }
+    this.dispatch('moduleRenamed', { oldName: oldName, newName: newName });
+    return true;
+  }
+
   removeModule(name) {
     if(this.module === name) {
       this.changeModule('Home');
