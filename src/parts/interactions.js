@@ -1,3 +1,4 @@
+// Mouse, touch and keyboard
 export default {
   /* Mobile zoom */
   pointerdown_handler(ev) {
@@ -85,6 +86,9 @@ export default {
     }
     switch (this.elementType(this.ele_selected)) {
       case 'drawflow-node':
+        if(this.multiselect && this.updateMultiSelection(this.ele_selected.id.slice(5), e.ctrlKey || e.metaKey || e.shiftKey)) {
+          break;
+        }
         if(this.node_selected != null) {
           this.node_selected.classList.remove("selected");
           if(this.node_selected != this.ele_selected) {
@@ -109,6 +113,9 @@ export default {
           if(e.target.tagName !== 'SELECT') {
             this.drag = true;
           }
+        }
+        if(this.isNodeLocked(this.ele_selected.id)) {
+          this.drag = false;
         }
         break;
       case 'output':
@@ -214,6 +221,14 @@ export default {
       this.pos_y = e.clientY;
       this.pos_y_start = e.clientY;
     }
+    if(this.multiselect && this.editor_selected && this.editor_mode === 'edit') {
+      if(e.shiftKey) {
+        this.editor_selected = false;
+        this.startSelectionBox(this.pos_x, this.pos_y);
+      } else {
+        this.clearSelection();
+      }
+    }
     if (['input','output','main-path'].includes(this.ele_selected.classList[0])) {
       e.preventDefault();
       // preventDefault also stops the focus: without it the Delete key does not reach the editor
@@ -230,10 +245,14 @@ export default {
       var e_pos_x = e.clientX;
       var e_pos_y = e.clientY;
     }
-
+    this.last_pointer = { x: e_pos_x, y: e_pos_y };
+    // Cursor while dragging: nodes and reroute points move, the canvas pans
+    this.container.classList.toggle('drawflow-dragging', !!(this.drag || this.drag_point));
+    this.container.classList.toggle('drawflow-panning', !!this.editor_selected);
 
     if(this.connection) {
       this.updateConnection(e_pos_x, e_pos_y);
+      this.setConnectionTarget(this.connectionTargetAt(e_pos_x, e_pos_y));
     }
     if(this.editor_selected) {
       x =  this.canvas_x + (-(this.pos_x - e_pos_x))
@@ -248,13 +267,11 @@ export default {
       this.pos_x = e_pos_x;
       this.pos_y = e_pos_y;
 
-      this.ele_selected.style.top = (this.ele_selected.offsetTop - y) + "px";
-      this.ele_selected.style.left = (this.ele_selected.offsetLeft - x) + "px";
+      this.dragNodes(x, y);
+    }
 
-      this.drawflow.drawflow[this.module].data[this.ele_selected.id.slice(5)].pos_x = (this.ele_selected.offsetLeft - x);
-      this.drawflow.drawflow[this.module].data[this.ele_selected.id.slice(5)].pos_y = (this.ele_selected.offsetTop - y);
-
-      this.updateConnectionNodes(this.ele_selected.id)
+    if(this.selection_box) {
+      this.updateSelectionBox(e_pos_x, e_pos_y);
     }
 
     if(this.drag_point) {
@@ -317,9 +334,18 @@ export default {
 
     if(this.drag) {
       if(this.pos_x_start != e_pos_x || this.pos_y_start != e_pos_y) {
-        this.settleGroupMembership(this.ele_selected.id.slice(5));
-        this.dispatch('nodeMoved', this.ele_selected.id.slice(5));
+        this.nodesToDrag().forEach(id => {
+          const node = this.drawflow.drawflow[this.module].data[id];
+          this.settleGroupMembership(id);
+          this.dispatch('nodeMoved', id);
+          this.dispatch('nodePositionChanged', { id: id, pos_x: node.pos_x, pos_y: node.pos_y });
+        });
       }
+      this.drag_origin = {};
+    }
+
+    if(this.selection_box) {
+      this.finishSelectionBox();
     }
 
     if(this.drag_point) {
@@ -335,19 +361,12 @@ export default {
       this.editor_selected = false;
     }
     if(this.connection === true) {
-      if(ele_last.classList[0] === 'input' || (this.force_first_input && (ele_last.closest(".drawflow_content_node") != null || ele_last.classList[0] === 'drawflow-node'))) {
+      this.setConnectionTarget(null);
+      if(ele_last && (ele_last.classList[0] === 'input' || (this.force_first_input && ele_last.closest(".drawflow-node") != null))) {
 
-        if(this.force_first_input && (ele_last.closest(".drawflow_content_node") != null || ele_last.classList[0] === 'drawflow-node')) {
-          if(ele_last.closest(".drawflow_content_node") != null) {
-            var input_id = ele_last.closest(".drawflow_content_node").parentElement.id;
-          } else {
-            var input_id = ele_last.id;
-          }
-         if(Object.keys(this.getNodeFromId(input_id.slice(5)).inputs).length === 0) {
-           var input_class = false;
-         } else {
-          var input_class = "input_1";
-         }
+        if(ele_last.classList[0] !== 'input') {
+          var input_id = ele_last.closest(".drawflow-node").id;
+          var input_class = this.firstInputClass(input_id.slice(5));
 
 
        } else {
@@ -360,7 +379,8 @@ export default {
 
         if(output_id !== input_id && input_class !== false) {
 
-          if(this.container.querySelectorAll('.connection.node_in_'+input_id+'.node_out_'+output_id+'.'+output_class+'.'+input_class).length === 0) {
+          if(this.container.querySelectorAll('.connection.node_in_'+input_id+'.node_out_'+output_id+'.'+output_class+'.'+input_class).length === 0
+            && this.validateConnection(output_id.slice(5), input_id.slice(5), output_class, input_class)) {
           // Conection no exist save connection
 
           this.connection_ele.classList.add("node_in_"+input_id);
@@ -369,6 +389,7 @@ export default {
           this.connection_ele.classList.add(input_class);
           var id_input = input_id.slice(5);
           var id_output = output_id.slice(5);
+          this.connection_ele.classList.add(...this.connectionClassesFromNode(id_output));
 
           this.drawflow.drawflow[this.module].data[id_output].outputs[output_class].connections.push( {"node": id_input, "output": input_class});
           this.drawflow.drawflow[this.module].data[id_input].inputs[input_class].connections.push( {"node": id_output, "input": output_class});
@@ -428,8 +449,20 @@ export default {
     this.connection = false;
     this.ele_selected = null;
     this.editor_selected = false;
+    this.container.classList.remove('drawflow-dragging', 'drawflow-panning');
 
     this.dispatch('mouseUp', e);
+  },
+
+  // The window lost the focus (another window, alt+tab) in the middle of a drag: end it where the pointer was,
+  // on the container, so that a connection being drawn is cancelled
+  cancelPointer() {
+    if(!(this.drag || this.drag_point || this.editor_selected || this.connection || this.selection_box)) {
+      return false;
+    }
+    const pointer = this.last_pointer || { x: this.pos_x, y: this.pos_y };
+    this.dragEnd({ type: 'mouseup', clientX: pointer.x, clientY: pointer.y, target: this.container });
+    return true;
   },
 
   contextmenu(e) {
@@ -438,13 +471,11 @@ export default {
     if(this.editor_mode === 'fixed' || this.editor_mode === 'view') {
       return false;
     }
-    if(this.precanvas.getElementsByClassName("drawflow-delete").length) {
-      this.precanvas.getElementsByClassName("drawflow-delete")[0].remove()
-    };
+    this.contextmenuDel();
     if(this.node_selected || this.connection_selected) {
       var deletebox = document.createElement('div');
       deletebox.classList.add("drawflow-delete");
-      deletebox.innerHTML = "x";
+      deletebox.innerHTML = "✕";
       if(this.node_selected) {
         this.node_selected.appendChild(deletebox);
 
@@ -472,8 +503,26 @@ export default {
     if(this.editor_mode === 'fixed' || this.editor_mode === 'view') {
       return false;
     }
+    if (this.history && (e.ctrlKey || e.metaKey) && !this.isTyping(e.target)) {
+      const key = e.key.toLowerCase();
+      if(key === 'z' || key === 'y') {
+        e.preventDefault();
+        if(key === 'y' || e.shiftKey) {
+          this.redo();
+        } else {
+          this.undo();
+        }
+      }
+    }
+    if (this.multiselect && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !this.isTyping(e.target)) {
+      e.preventDefault();
+      this.selectNodes(Object.keys(this.drawflow.drawflow[this.module].data));
+    }
     if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
-      if(this.node_selected != null) {
+      if(this.selected_nodes.length > 0 && !this.isTyping(this.first_click)) {
+        this.selected_nodes.slice().forEach(id => this.removeNodeId(id));
+        this.clearSelection();
+      } else if(this.node_selected != null) {
         if(this.first_click.tagName !== 'INPUT' && this.first_click.tagName !== 'TEXTAREA' && this.first_click.hasAttribute('contenteditable') !== true) {
           this.removeNodeId(this.node_selected.id);
         }
@@ -485,6 +534,10 @@ export default {
   },
 
   dblclick(e) {
+    if(e.target.classList.contains('main-path') && e.target.parentElement.classList.contains('connection')) {
+      const list = e.target.parentElement.classList;
+      this.dispatch('connectionDblClick', { output_id: list[2].slice(14), input_id: list[1].slice(13), output_class: list[3], input_class: list[4] });
+    }
     if(this.connection_selected != null && this.reroute) {
         this.createReroutePoint(this.connection_selected);
     }

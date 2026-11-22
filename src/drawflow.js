@@ -1,11 +1,17 @@
 import interactions from './parts/interactions.js';
 import view from './parts/view.js';
+import layout from './parts/layout.js';
 import curves from './parts/curves.js';
 import connections from './parts/connections.js';
+import arrows from './parts/arrows.js';
 import reroute from './parts/reroute.js';
 import nodes from './parts/nodes.js';
 import ports from './parts/ports.js';
 import data from './parts/data.js';
+import selection from './parts/selection.js';
+import labels from './parts/labels.js';
+import history from './parts/history.js';
+import preview from './parts/preview.js';
 import groups from './parts/groups.js';
 
 export default class Drawflow {
@@ -20,13 +26,15 @@ export default class Drawflow {
     this.reroute = false;
     this.reroute_fix_curvature = false;
     this.curvature = 0.5;
+    // Connection to a node behind the output (left; above in vertical) drawn as a loop around the nodes
+    this.curvature_backward = false;
+    this.backward_offset = 60;
+    this.backward_depth = 80;
+    this.backward_row_gap = 120;
     this.reroute_curvature_start_end = 0.5;
     this.reroute_curvature = 0.5;
     this.reroute_width = 6;
     this.drag_point = false;
-    // Redraw connections when a node changes size (content loaded later, fonts, hidden tab)
-    this.observe_node_resize = true;
-    this.resize_observer = null;
     this.editor_selected = false;
     this.connection = false;
     this.connection_ele = null;
@@ -45,6 +53,45 @@ export default class Drawflow {
     this.draggable_inputs = true;
     this.useuuid = false;
     this.parent = parent;
+    // Optional: function({ output_id, input_id, output_class, input_class }) => boolean.
+    // Returning false blocks the connection (mouse or addConnection).
+    this.connection_validator = null;
+    // Arrows on connections: 'none', 'end' (into the input), 'start' (into the output) or 'both'
+    this.connection_arrow = 'none';
+    this.connection_arrow_size = 14;
+    // Distance from the port center to the arrow tip (default port: 20px + 2px border)
+    this.connection_arrow_offset = 12;
+    // 'horizontal': outputs on the right, inputs on the left. 'vertical': inputs on top, outputs at the bottom
+    this.connection_direction = 'horizontal';
+    // Class added to the node under the pointer while dragging a connection, when dropping there connects
+    this.connection_target_class = 'connection-target';
+    this.connection_target = null;
+    this.arrow_marker_id = 'drawflow-arrow-' + Math.random().toString(36).slice(2, 10);
+    // Redraw connections when a node changes size (content loaded later, fonts, hidden tab)
+    this.observe_node_resize = true;
+    this.resize_observer = null;
+    // Optional: function(id) / function({ output_id, input_id, output_class, input_class }) => boolean.
+    // Returning false keeps the node or the connection (Delete key, ✕ button and the remove methods)
+    this.node_remove_validator = null;
+    this.connection_remove_validator = null;
+    // Optional: function(html) => html. Cleans the HTML of nodes before it is written into the page
+    // (addNode and import), for flows that come from untrusted sources. Ex: html => DOMPurify.sanitize(html)
+    this.sanitize_html = null;
+    // Grid size for dragged nodes (0: no grid), and limits { min_x, min_y, max_x, max_y } (any of them)
+    this.snap_grid = 0;
+    this.node_bounds = null;
+    // Ctrl/Shift + click and Shift + drag on the canvas select several nodes
+    this.multiselect = false;
+    this.selected_nodes = [];
+    this.selection_box = null;
+    this.drag_origin = {};
+    // Undo and redo (Ctrl+Z, Ctrl+Y). Set before start()
+    this.history = false;
+    this.history_limit = 50;
+    this.history_stack = [];
+    this.history_index = -1;
+    this.history_timer = null;
+    this.history_restoring = false;
 
     this.noderegister = {};
     this.render = render;
@@ -63,6 +110,7 @@ export default class Drawflow {
     this.zoom_min = 0.5;
     this.zoom_value = 0.1;
     this.zoom_last_value = 1;
+    this.zoom_use_ctrl_key = true;
 
     // Mobile
     this.evCache = new Array();
@@ -79,6 +127,8 @@ export default class Drawflow {
     this.precanvas = document.createElement('div');
     this.precanvas.classList.add("drawflow");
     this.container.appendChild(this.precanvas);
+    this.createArrowMarkers();
+    this.container.classList.toggle("drawflow-vertical", this.connection_direction === 'vertical');
 
     /* Mouse and Touch Actions */
     this.container.addEventListener('mouseup', this.dragEnd.bind(this));
@@ -102,25 +152,31 @@ export default class Drawflow {
     this.container.addEventListener('dblclick', this.dblclick.bind(this));
     /* Keep dragging when the pointer leaves the container, and release it outside */
     this.window_mousemove = e => {
-      if(!this.container.contains(e.target) && (this.drag || this.drag_point || this.editor_selected || this.connection)) {
+      if(!this.container.contains(e.target) && (this.drag || this.drag_point || this.editor_selected || this.connection || this.selection_box)) {
         this.position(e);
       }
     };
     this.window_mouseup = e => {
-      if(!this.container.contains(e.target) && (this.drag || this.drag_point || this.editor_selected || this.connection)) {
+      if(!this.container.contains(e.target) && (this.drag || this.drag_point || this.editor_selected || this.connection || this.selection_box)) {
         this.dragEnd(e);
       }
     };
     window.addEventListener('mousemove', this.window_mousemove);
     window.addEventListener('mouseup', this.window_mouseup);
+    this.window_blur = () => this.cancelPointer();
+    window.addEventListener('blur', this.window_blur);
     if(this.observe_node_resize && typeof ResizeObserver !== 'undefined') {
       this.resize_observer = new ResizeObserver(entries => {
         entries.forEach(entry => {
-          if(entry.target.isConnected) {
+          if(entry.target === this.container) {
+            // Drawn while the editor had no size (hidden tab, closed panel): the lines need it
+            Object.keys(this.drawflow.drawflow[this.module].data).forEach(id => this.updateConnectionNodes(id));
+          } else if(entry.target.isConnected) {
             this.updateConnectionNodes(entry.target.id);
           }
         });
       });
+      this.resize_observer.observe(this.container);
     }
     /* Mobile zoom */
     this.container.onpointerdown = this.pointerdown_handler.bind(this);
@@ -131,8 +187,12 @@ export default class Drawflow {
     this.container.onpointerleave = this.pointerup_handler.bind(this);
 
     this.load();
+    if(this.history) {
+      this.startHistory();
+    }
   }
 
+  /* End Mobile Zoom */
   load() {
     for (var key in this.drawflow.drawflow[this.module].data) {
       this.addNodeImport(this.drawflow.drawflow[this.module].data[key], this.precanvas);
@@ -161,21 +221,6 @@ export default class Drawflow {
     });
     this.nodeId = number;
   }
-
-  // Methods accept the node id as 5, '5' or 'node-5'
-  nodeKey(id) {
-    return String(id).replace(/^node-/, '');
-  }
-  nodeElementId(id) {
-    return 'node-' + this.nodeKey(id);
-  }
-
-  // Kind of element by its classes, not only the first one: the container may have classes of its own
-  elementType(ele) {
-    const types = ['drawflow-node', 'output', 'parent-drawflow', 'drawflow', 'main-path', 'point', 'drawflow-delete'];
-    return types.find(type => ele.classList.contains(type)) || ele.classList[0];
-  }
-
 
   /* Events */
   on (event, callback) {
@@ -234,10 +279,25 @@ export default class Drawflow {
         var uuid = s.join("");
         return uuid;
     }
+
+  // Methods accept the node id as 5, '5' or 'node-5'
+  nodeKey(id) {
+    return String(id).replace(/^node-/, '');
+  }
+
+  nodeElementId(id) {
+    return 'node-' + this.nodeKey(id);
+  }
+
+  // Kind of element by its classes, not only the first one: the container may have classes of its own
+  elementType(ele) {
+    const types = ['drawflow-node', 'output', 'parent-drawflow', 'drawflow', 'main-path', 'point', 'drawflow-delete'];
+    return types.find(type => ele.classList.contains(type)) || ele.classList[0];
+  }
 }
 
 // Each file in parts/ adds its methods to the class, not enumerable like the ones written above
-[interactions, view, curves, connections, reroute, nodes, ports, data, groups].forEach(methods => {
+[interactions, view, layout, curves, connections, arrows, reroute, nodes, ports, data, selection, labels, history, preview, groups].forEach(methods => {
   Object.keys(methods).forEach(name => {
     Object.defineProperty(Drawflow.prototype, name, { value: methods[name], writable: true, configurable: true });
   });

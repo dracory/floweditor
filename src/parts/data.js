@@ -1,3 +1,4 @@
+// Modules, import and export
 export default {
   getModuleFromNodeId(id) {
     id = this.nodeKey(id);
@@ -19,7 +20,7 @@ export default {
   },
 
   changeModule(name) {
-    this.dispatch('moduleChanged', name);
+    this.dispatch('moduleChanging', name);
     this.module = name;
     this.precanvas.innerHTML = "";
     this.canvas_x = 0;
@@ -32,6 +33,7 @@ export default {
     this.zoom_last_value = 1;
     this.precanvas.style.transform = '';
     this.import(this.drawflow, false);
+    this.dispatch('moduleChanged', name);
   },
 
   renameModule(oldName, newName) {
@@ -68,6 +70,7 @@ export default {
   clearModuleSelected() {
     if(this.resize_observer) {
       this.resize_observer.disconnect();
+      this.resize_observer.observe(this.container);
     }
     this.precanvas.innerHTML = "";
     this.drawflow.drawflow[this.module] =  { "data": {}, "groups": {} };
@@ -76,6 +79,7 @@ export default {
   clear () {
     if(this.resize_observer) {
       this.resize_observer.disconnect();
+      this.resize_observer.observe(this.container);
     }
     this.precanvas.innerHTML = "";
     this.drawflow = { "drawflow": { "Home": { "data": {}, "groups": {} }}};

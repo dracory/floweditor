@@ -1,4 +1,12 @@
+// Creating, drawing and removing connections
 export default {
+  validateConnection(id_output, id_input, output_class, input_class) {
+    if(typeof this.connection_validator !== 'function') {
+      return true;
+    }
+    return this.connection_validator({ output_id: id_output.toString(), input_id: id_input.toString(), output_class: output_class, input_class: input_class }) !== false;
+  },
+
   drawConnection(ele) {
     var connection = document.createElementNS('http://www.w3.org/2000/svg',"svg");
     this.connection_ele = connection;
@@ -9,6 +17,7 @@ export default {
     connection.classList.add("connection");
     connection.appendChild(path);
     this.precanvas.appendChild(connection);
+    this.updateConnectionArrows(connection);
     var id_output = ele.parentElement.parentElement.id.slice(5);
     var output_class = ele.classList[1];
     this.dispatch('connectionStart', { output_id: id_output, output_class:  output_class });
@@ -52,7 +61,7 @@ export default {
         }
       }
       // Check connection exist
-      if(exist === false) {
+      if(exist === false && this.validateConnection(id_output, id_input, output_class, input_class)) {
         //Create Connection
         this.drawflow.drawflow[nodeOneModule].data[id_output].outputs[output_class].connections.push( {"node": id_input.toString(), "output": input_class});
         this.drawflow.drawflow[nodeOneModule].data[id_input].inputs[input_class].connections.push( {"node": id_output.toString(), "input": output_class});
@@ -69,6 +78,7 @@ export default {
           connection.classList.add("node_out_node-"+id_output);
           connection.classList.add(output_class);
           connection.classList.add(input_class);
+          connection.classList.add(...this.connectionClassesFromNode(id_output));
           connection.appendChild(path);
           this.precanvas.appendChild(connection);
           this.updateConnectionNodes('node-'+id_output);
@@ -397,6 +407,51 @@ export default {
 
       }
     })
+
+    elemsOut.forEach(ele => { this.updateConnectionArrows(ele); this.updateConnectionLabel(ele); });
+    elems.forEach(ele => { this.updateConnectionArrows(ele); this.updateConnectionLabel(ele); });
+  },
+
+  firstInputClass(id) {
+    const inputs = Object.keys(this.drawflow.drawflow[this.getModuleFromNodeId(id)].data[id].inputs);
+    return inputs.length === 0 ? false : inputs[0];
+  },
+
+  connectionClassesFromNode(id) {
+    const dataNode = this.drawflow.drawflow[this.module].data[id];
+    if(!dataNode || typeof dataNode.class !== 'string') {
+      return [];
+    }
+    return dataNode.class.split(' ').filter(name => name !== '').map(name => 'connection-'+name);
+  },
+
+  connectionTargetAt(e_pos_x, e_pos_y) {
+    const ele = document.elementFromPoint(e_pos_x, e_pos_y);
+    if(!ele || !this.container.contains(ele)) {
+      return null;
+    }
+    const node = ele.closest(".drawflow-node");
+    if(!node || node === this.ele_selected.parentElement.parentElement) {
+      return null;
+    }
+    // Dropping connects only on an input, or anywhere on the node with force_first_input
+    if(ele.classList[0] !== 'input' && !(this.force_first_input && this.firstInputClass(node.id.slice(5)) !== false)) {
+      return null;
+    }
+    return node;
+  },
+
+  setConnectionTarget(node) {
+    if(this.connection_target === node) {
+      return;
+    }
+    if(this.connection_target) {
+      this.connection_target.classList.remove(this.connection_target_class);
+    }
+    if(node) {
+      node.classList.add(this.connection_target_class);
+    }
+    this.connection_target = node;
   },
 
   // Removes one connection from both sides of the data. Ids are compared as text: imported data may use numbers
@@ -412,11 +467,20 @@ export default {
     if(index_in > -1) {
       inputs.splice(index_in, 1);
     }
+    this.removeOrphanLabels();
+  },
+
+  canRemoveConnection(id_output, id_input, output_class, input_class) {
+    return typeof this.connection_remove_validator !== 'function'
+      || this.connection_remove_validator({ output_id: String(id_output), input_id: String(id_input), output_class: output_class, input_class: input_class }) !== false;
   },
 
   removeConnection() {
     if(this.connection_selected != null) {
       var listclass = this.connection_selected.parentElement.classList;
+      if(!this.canRemoveConnection(listclass[2].slice(14), listclass[1].slice(13), listclass[3], listclass[4])) {
+        return false;
+      }
       this.connection_selected.parentElement.remove();
       this.removeConnectionData(this.module, listclass[2].slice(14), listclass[3], listclass[1].slice(13), listclass[4]);
       this.dispatch('connectionRemoved', { output_id: listclass[2].slice(14), input_id: listclass[1].slice(13), output_class: listclass[3], input_class: listclass[4] } );
@@ -424,9 +488,12 @@ export default {
     }
   },
 
-  removeSingleConnection(id_output, id_input, output_class, input_class) {
+  removeSingleConnection(id_output, id_input, output_class, input_class, force = false) {
     id_output = this.nodeKey(id_output);
     id_input = this.nodeKey(id_input);
+    if(!force && !this.canRemoveConnection(id_output, id_input, output_class, input_class)) {
+      return false;
+    }
     var nodeOneModule = this.getModuleFromNodeId(id_output);
     var nodeTwoModule = this.getModuleFromNodeId(id_input);
     if(nodeOneModule === nodeTwoModule) {
@@ -461,8 +528,8 @@ export default {
     const elems = this.container.querySelectorAll(`.node_out_${id}, .node_in_${id}`);
     for(var i = elems.length-1; i >= 0; i--) {
       var listclass = elems[i].classList;
-      this.removeConnectionData(this.module, listclass[2].slice(14), listclass[3], listclass[1].slice(13), listclass[4]);
       elems[i].remove();
+      this.removeConnectionData(this.module, listclass[2].slice(14), listclass[3], listclass[1].slice(13), listclass[4]);
       this.dispatch('connectionRemoved', { output_id: listclass[2].slice(14), input_id: listclass[1].slice(13), output_class: listclass[3], input_class: listclass[4] } );
     }
   },

@@ -1,3 +1,4 @@
+// Inputs and outputs of a node: add, remove and renumber them, keeping their connections
 export default {
   addNodeInput(id) {
     id = this.nodeKey(id);
@@ -15,6 +16,7 @@ export default {
 
     }
     this.drawflow.drawflow[moduleName].data[id].inputs["input_"+(numInputs+1)] = { "connections": []};
+    return "input_"+(numInputs+1);
   },
 
   addNodeOutput(id) {
@@ -33,6 +35,7 @@ export default {
 
     }
     this.drawflow.drawflow[moduleName].data[id].outputs["output_"+(numOutputs+1)] = { "connections": []};
+    return "output_"+(numOutputs+1);
   },
 
   removeNodeInput(id, input_class) {
@@ -50,7 +53,7 @@ export default {
     })
     // Remove connections
     removeInputs.forEach((item, i) => {
-      this.removeSingleConnection(item.id_output, item.id, item.output_class, item.input_class);
+      this.removeSingleConnection(item.id_output, item.id, item.output_class, item.input_class, true);
     });
 
     delete this.drawflow.drawflow[moduleName].data[id].inputs[input_class];
@@ -122,7 +125,7 @@ export default {
     })
     // Remove connections
     removeOutputs.forEach((item, i) => {
-      this.removeSingleConnection(item.id, item.id_input, item.output_class, item.input_class);
+      this.removeSingleConnection(item.id, item.id_input, item.output_class, item.input_class, true);
     });
 
     delete this.drawflow.drawflow[moduleName].data[id].outputs[output_class];

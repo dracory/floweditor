@@ -1,3 +1,4 @@
+// Nodes and their data (the inputs and outputs are in ports.js)
 // df-* fields: checkbox and radio use checked, the others value
 function setFieldValue(ele, value) {
   if(ele.type === 'checkbox') {
@@ -14,10 +15,77 @@ export default {
     this.noderegister[name] = {html: html, props: props, options: options};
   },
 
+  // HTML written into a node: passed through sanitize_html when the application gives one
+  nodeHtml(html) {
+    return typeof this.sanitize_html === 'function' ? this.sanitize_html(html) : html;
+  },
+
   getNodeFromId(id) {
     id = this.nodeKey(id);
     var moduleName = this.getModuleFromNodeId(id)
     return JSON.parse(JSON.stringify(this.drawflow.drawflow[moduleName].data[id]));
+  },
+
+  setNodePosition(id, pos_x, pos_y) {
+    id = this.nodeKey(id);
+    var moduleName = this.getModuleFromNodeId(id);
+    var dataNode = this.drawflow.drawflow[moduleName].data[id];
+    dataNode.pos_x = pos_x;
+    dataNode.pos_y = pos_y;
+    if(this.module === moduleName) {
+      var node = this.container.querySelector('#node-'+id);
+      node.style.left = pos_x + "px";
+      node.style.top = pos_y + "px";
+      this.updateConnectionNodes('node-'+id);
+    }
+    this.dispatch('nodeMoved', id.toString());
+    this.dispatch('nodePositionChanged', { id: id.toString(), pos_x: pos_x, pos_y: pos_y });
+  },
+
+  // Ids of the nodes of a module (the current one by default)
+  getAllNodes(moduleName = this.module) {
+    const module = this.drawflow.drawflow[moduleName];
+    return module ? Object.keys(module.data) : [];
+  },
+
+  // Ids of the nodes connected to a node, on every port or on one ('input_1', 'output_2')
+  getConnectedNodes(id, port) {
+    id = this.nodeKey(id);
+    const moduleName = this.getModuleFromNodeId(id);
+    if(!moduleName) {
+      return [];
+    }
+    const node = this.drawflow.drawflow[moduleName].data[id];
+    const ports = Object.assign({}, node.inputs, node.outputs);
+    const names = port === undefined ? Object.keys(ports) : [port];
+    const ids = [];
+    names.forEach(name => {
+      (ports[name] ? ports[name].connections : []).forEach(connection => {
+        const other = String(connection.node);
+        if(!ids.includes(other)) {
+          ids.push(other);
+        }
+      });
+    });
+    return ids;
+  },
+
+  // New HTML for a node created with HTML (typenode false): the fields get the values of its data again
+  updateNodeHtmlFromId(id, html) {
+    id = this.nodeKey(id);
+    const moduleName = this.getModuleFromNodeId(id);
+    const node = moduleName && this.drawflow.drawflow[moduleName].data[id];
+    if(!node || node.typenode !== false) {
+      return false;
+    }
+    node.html = html;
+    if(this.module === moduleName) {
+      this.container.querySelector('#node-' + id + ' .drawflow_content_node').innerHTML = this.nodeHtml(html);
+      this.updateNodeDataFromId(id, node.data);
+      this.updateConnectionNodes('node-' + id);
+    }
+    this.dispatch('nodeHtmlChanged', id);
+    return true;
   },
 
   getNodesFromName(name) {
@@ -70,6 +138,9 @@ export default {
       const output = document.createElement('div');
       output.classList.add("output");
       output.classList.add("output_"+(x+1));
+      if(classoverride != '') {
+        output.classList.add(...classoverride.split(' ').filter(name => name !== '').map(name => 'connection-'+name));
+      }
       json_outputs["output_"+(x+1)] = { "connections": []};
       outputs.appendChild(output);
     }
@@ -77,7 +148,7 @@ export default {
     const content = document.createElement('div');
     content.classList.add("drawflow_content_node");
     if(typenode === false) {
-      content.innerHTML = html;
+      content.innerHTML = this.nodeHtml(html);
     } else if (typenode === true) {
       content.appendChild(this.noderegister[html].html.cloneNode(true));
     } else {
@@ -166,6 +237,7 @@ export default {
   },
 
   addNodeImport (dataNode, precanvas) {
+    const connectionClasses = this.connectionClassesFromNode.bind(this);
     const parent = document.createElement('div');
     parent.classList.add("parent-node");
 
@@ -175,6 +247,9 @@ export default {
     node.classList.add("drawflow-node");
     if(dataNode.class != '') {
       node.classList.add(...dataNode.class.split(' ').filter(name => name !== ''));
+    }
+    if(dataNode.locked) {
+      node.classList.add('locked');
     }
 
     const inputs = document.createElement('div');
@@ -200,6 +275,7 @@ export default {
         connection.classList.add("node_out_node-"+dataNode.inputs[input_item].connections[output_item].node);
         connection.classList.add(dataNode.inputs[input_item].connections[output_item].input);
         connection.classList.add(input_item);
+        connection.classList.add(...connectionClasses(dataNode.inputs[input_item].connections[output_item].node));
 
         connection.appendChild(path);
         precanvas.appendChild(connection);
@@ -211,6 +287,7 @@ export default {
       const output = document.createElement('div');
       output.classList.add("output");
       output.classList.add(output_item);
+      output.classList.add(...connectionClasses(dataNode.id));
       outputs.appendChild(output);
     });
 
@@ -218,7 +295,7 @@ export default {
     content.classList.add("drawflow_content_node");
 
     if(dataNode.typenode === false) {
-      content.innerHTML = dataNode.html;
+      content.innerHTML = this.nodeHtml(dataNode.html);
     } else if (dataNode.typenode === true) {
       content.appendChild(this.noderegister[dataNode.html].html.cloneNode(true));
     } else {
@@ -357,6 +434,9 @@ export default {
 
   removeNodeId(id) {
     id = this.nodeElementId(id);
+    if(!this.canRemoveNode(id.slice(5))) {
+      return false;
+    }
     this.removeConnectionNodeId(id);
     var moduleName = this.getModuleFromNodeId(id.slice(5))
     if(this.module === moduleName) {
@@ -369,5 +449,34 @@ export default {
     delete this.drawflow.drawflow[moduleName].data[id.slice(5)];
     this.purgeGroupMember(moduleName, id.slice(5));
     this.dispatch('nodeRemoved', id.slice(5));
+    return true;
+  },
+
+  canRemoveNode(id) {
+    if(this.isNodeLocked(id)) {
+      return false;
+    }
+    return typeof this.node_remove_validator !== 'function' || this.node_remove_validator(id) !== false;
+  },
+
+  // A locked node cannot be dragged or removed; its fields and connections still work
+  setNodeLocked(id, locked = true) {
+    id = this.nodeKey(id);
+    const moduleName = this.getModuleFromNodeId(id);
+    if(locked) {
+      this.drawflow.drawflow[moduleName].data[id].locked = true;
+    } else {
+      delete this.drawflow.drawflow[moduleName].data[id].locked;
+    }
+    if(this.module === moduleName) {
+      this.container.querySelector('#node-'+id).classList.toggle('locked', locked);
+    }
+    this.dispatch('nodeLocked', { id: id, locked: locked });
+  },
+
+  isNodeLocked(id) {
+    id = this.nodeKey(id);
+    const moduleName = this.getModuleFromNodeId(id);
+    return moduleName !== undefined && this.drawflow.drawflow[moduleName].data[id].locked === true;
   },
 };
