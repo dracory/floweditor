@@ -390,7 +390,33 @@ export default {
       }
 
       } else {
-        // Remove Connection;
+        // Remove Connection: the wire was released off a valid input
+        // port. Besides the legacy 'connectionCancel', emit
+        // 'connectionDrop' — a generic primitive for UIs that offer a
+        // follow-up action at the drop point (e.g. Node-RED's
+        // quick-add). Carries the source port and the drop position in
+        // canvas world coordinates ((client - precanvasRect) / zoom,
+        // the same transform updateConnection uses); 'target' is the
+        // element under the cursor, or null for touch drops outside
+        // the document.
+        var drop_output_id = this.ele_selected.parentElement.parentElement.id.slice(5);
+        var drop_output_class = this.ele_selected.classList[1];
+        var drop_precanvas = this.precanvas;
+        var drop_zoom = this.zoom;
+        var dropScaleX = drop_precanvas.clientWidth / (drop_precanvas.clientWidth * drop_zoom) || 0;
+        var dropScaleY = drop_precanvas.clientHeight / (drop_precanvas.clientHeight * drop_zoom) || 0;
+        var dropRect = drop_precanvas.getBoundingClientRect();
+        this.dispatch('connectionDrop', {
+          output_id: drop_output_id,
+          output_class: drop_output_class,
+          input_id: null,
+          input_class: null,
+          x: e_pos_x * dropScaleX - dropRect.x * dropScaleX,
+          y: e_pos_y * dropScaleY - dropRect.y * dropScaleY,
+          client_x: e_pos_x,
+          client_y: e_pos_y,
+          target: ele_last || null
+        });
         this.dispatch('connectionCancel', true);
         this.connection_ele.remove();
         this.connection_ele = null;

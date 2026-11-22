@@ -298,6 +298,7 @@ Event | Return | Description
   `nodeMoved` | id | `id` of Node
   `connectionStart` | { output_id, output_class } | `id` of nodes and output selected
   `connectionCancel` | true | Connection Cancel
+  `connectionDrop` | { output_id, output_class, input_id, input_class, x, y, client_x, client_y, target } | Dragged connection released off a valid input port. `x`/`y` are the drop point in canvas world coordinates; `input_*` are `null` (no port was hit); `target` is the element under the cursor. Fired in addition to `connectionCancel`.
   `connectionCreated` | { output_id, input_id, output_class, input_class } | `id`'s of nodes and output/input selected
   `connectionRemoved` | { output_id, input_id, output_class, input_class } | `id`'s of nodes and output/input selected
   `connectionSelected` | { output_id, input_id, output_class, input_class } | `id`'s of nodes and output/input selected
