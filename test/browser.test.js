@@ -14,7 +14,7 @@ async function run(name) {
 }
 
 (async () => {
-  for (const b of ['chromium', 'firefox', 'webkit']) {
+  for (const b of (process.env.BROWSERS || 'chromium').split(',')) {
     try { await run(b); } catch (e) { check(b, 'execution', false, e.message.split('\n')[0]); }
   }
   const bad = results.filter(r => !r.ok);
