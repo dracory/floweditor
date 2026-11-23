@@ -38,6 +38,9 @@ export default class Drawflow {
     this.drag_point = false;
     this.editor_selected = false;
     this.connection = false;
+    // Which end of the wire is held while dragging a connection:
+    // 'output' (default, drag started on an .output port) or 'input'
+    this.connection_from = 'output';
     this.connection_ele = null;
     this.connection_selected = null;
     this.canvas_x = 0;
@@ -51,6 +54,9 @@ export default class Drawflow {
     this.line_path = 5;
     this.first_click = null;
     this.force_first_input = false;
+    // Mirror of force_first_input for drags started on an .input port:
+    // dropping the wire anywhere on a node connects to its first output
+    this.force_first_output = false;
     this.draggable_inputs = true;
     this.useuuid = false;
     this.parent = parent;

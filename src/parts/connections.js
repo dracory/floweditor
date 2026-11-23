@@ -18,9 +18,14 @@ export default {
     connection.appendChild(path);
     this.precanvas.appendChild(connection);
     this.updateConnectionArrows(connection);
-    var id_output = ele.parentElement.parentElement.id.slice(5);
-    var output_class = ele.classList[1];
-    this.dispatch('connectionStart', { output_id: id_output, output_class:  output_class });
+    var id_port = ele.parentElement.parentElement.id.slice(5);
+    var port_class = ele.classList[1];
+    // connection_from ('output'|'input') says which end is being dragged
+    if(this.connection_from === 'input') {
+      this.dispatch('connectionStart', { output_id: null, output_class: null, input_id: id_port, input_class: port_class });
+    } else {
+      this.dispatch('connectionStart', { output_id: id_port, output_class: port_class, input_id: null, input_class: null });
+    }
 
   },
 
@@ -40,7 +45,11 @@ export default {
     var y = eY * ( this.precanvas.clientHeight / (this.precanvas.clientHeight * this.zoom)) - (this.precanvas.getBoundingClientRect().y *  ( this.precanvas.clientHeight / (this.precanvas.clientHeight * this.zoom)) );
 
     var curvature = this.curvature;
-    var lineCurve = this.createCurvature(line_x, line_y, x, y, curvature, 'openclose');
+    // From an .input port the wire is anchored at the input end: draw
+    // the curve from the pointer back to the port
+    var lineCurve = this.connection_from === 'input'
+      ? this.createCurvature(x, y, line_x, line_y, curvature, 'openclose')
+      : this.createCurvature(line_x, line_y, x, y, curvature, 'openclose');
     path.setAttributeNS(null, 'd', lineCurve);
 
   },
@@ -438,6 +447,11 @@ export default {
     return inputs.length === 0 ? false : inputs[0];
   },
 
+  firstOutputClass(id) {
+    const outputs = Object.keys(this.drawflow.drawflow[this.getModuleFromNodeId(id)].data[id].outputs);
+    return outputs.length === 0 ? false : outputs[0];
+  },
+
   connectionClassesFromNode(id) {
     const dataNode = this.drawflow.drawflow[this.module].data[id];
     if(!dataNode || typeof dataNode.class !== 'string') {
@@ -455,8 +469,14 @@ export default {
     if(!node || node === this.ele_selected.parentElement.parentElement) {
       return null;
     }
-    // Dropping connects only on an input, or anywhere on the node with force_first_input
-    if(ele.classList[0] !== 'input' && !(this.force_first_input && this.firstInputClass(node.id.slice(5)) !== false)) {
+    // Dropping connects only on the opposite port kind (an input for
+    // output-start drags, an output for input-start drags), or anywhere
+    // on the node with the matching force_first_* option
+    const from_input = this.connection_from === 'input';
+    const valid_port = from_input ? 'output' : 'input';
+    const force_first = from_input ? this.force_first_output : this.force_first_input;
+    const first_class = from_input ? this.firstOutputClass(node.id.slice(5)) : this.firstInputClass(node.id.slice(5));
+    if(ele.classList[0] !== valid_port && !(force_first && first_class !== false)) {
       return null;
     }
     return node;

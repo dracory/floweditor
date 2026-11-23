@@ -200,4 +200,62 @@ module.exports = async function (browser, B) {
     check(B, 'sem erros na página (mofolo)', p.errors.length === 0, p.errors);
     await p.close();
   } catch (e) { check(B, 'execução', false, e.message.split('\n')[0]); }
+
+  // ── 7. arrasto iniciado na entrada: liga na saída, connectionDrop no vazio ──
+  if (!process.env.ONLY) try {
+    const p = await page(browser);
+    const ids = await p.evaluate(() => {
+      const df = new Drawflow(document.getElementById('d')); df.start(); window.df = df;
+      window.a = df.addNode('a', 1, 1, 50, 100, 'a', {}, 'A');
+      window.b = df.addNode('b', 1, 1, 450, 100, 'b', {}, 'B');
+      window.evt = {};
+      df.on('connectionStart', e => window.evt.start = e);
+      df.on('connectionDrop', e => window.evt.drop = e);
+      df.on('connectionCreated', e => window.evt.created = e);
+      df.on('connectionCancel', () => window.evt.cancel = (window.evt.cancel || 0) + 1);
+      return { a: window.a, b: window.b };
+    });
+    // entrada → saída: liga com os lados corretos (a saída é o alvo)
+    await (await drag(p, '#node-2 .input_1', '#node-1 .output_1'))();
+    let r = await p.evaluate(() => ({ evt: window.evt, conns: df.getNodeFromId(a).outputs.output_1.connections }));
+    check(B, 'arrasto da entrada: connectionStart com lado input', r.evt.start.input_id === String(ids.b) && r.evt.start.input_class === 'input_1' && r.evt.start.output_id === null, r.evt.start);
+    check(B, 'arrasto da entrada → saída liga', r.conns.length === 1 && r.conns[0].node === String(ids.b) && r.evt.created.output_id === String(ids.a) && r.evt.created.input_id === String(ids.b), r.evt.created);
+    check(B, 'sem connectionDrop ao ligar', !r.evt.drop, r.evt.drop);
+
+    // entrada → vazio: connectionDrop com direction 'input' e lado input preenchido
+    await p.evaluate(() => { window.evt = {}; });
+    const ib = await p.locator('#node-1 .input_1').boundingBox();
+    await p.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2); await p.mouse.down();
+    await p.mouse.move(700, 500, { steps: 8 });
+    await p.mouse.up();
+    r = await p.evaluate(() => window.evt);
+    check(B, 'soltar no vazio: connectionDrop direction input', r.drop && r.drop.direction === 'input' && r.drop.input_id === String(ids.a) && r.drop.input_class === 'input_1' && r.drop.output_id === null && r.drop.output_class === null, r.drop);
+    check(B, 'soltar no vazio: cancel dispara e nenhuma ligação', r.cancel === 1 && !r.created, { cancel: r.cancel, created: r.created });
+    check(B, 'soltar no vazio: ponto de drop em coordenadas do canvas', r.drop && r.drop.x > 0 && r.drop.y > 0 && typeof r.drop.client_x === 'number', { x: r.drop.x, y: r.drop.y });
+
+    // force_first_output: soltar no corpo do nó encaixa na primeira saída
+    const ids2 = await p.evaluate(() => {
+      df.force_first_output = true; window.evt = {};
+      window.c = df.addNode('c', 1, 1, 50, 400, 'c', {}, 'C');
+      window.d = df.addNode('d', 1, 1, 450, 400, 'd', {}, 'D');
+      return { c: window.c, d: window.d };
+    });
+    const rel = await drag(p, '#node-' + ids2.c + ' .input_1', '#node-' + ids2.d + ' .drawflow_content_node');
+    const during = await p.evaluate(did => document.getElementById('node-' + did).classList.contains('connection-target'), ids2.d);
+    await rel();
+    r = await p.evaluate(() => ({ evt: window.evt, conns: df.getNodeFromId(d).outputs.output_1.connections, after: document.querySelectorAll('.connection-target').length }));
+    check(B, 'force_first_output: destaque no nó de destino durante o arrasto', during, r);
+    check(B, 'force_first_output: soltar no corpo liga na primeira saída', r.conns.length === 1 && r.conns[0].node === String(ids2.c) && r.evt.created.input_id === String(ids2.c), r.evt.created);
+    check(B, 'force_first_output: destaque some ao soltar', r.after === 0, r);
+
+    // nó sem saídas com force_first_output: cancela
+    const idE = await p.evaluate(() => { window.evt = {}; window.e = df.addNode('e', 1, 0, 700, 250, 'e', {}, 'E'); return window.e; });
+    const rel2 = await drag(p, '#node-' + ids2.c + ' .input_1', '#node-' + idE + ' .drawflow_content_node');
+    await rel2();
+    r = await p.evaluate(() => window.evt);
+    // alvo inválido (nó sem saídas): só connectionCancel, igual ao lado output
+    check(B, 'nó sem saídas: cancela sem connectionDrop', r.cancel === 1 && !r.created && !r.drop, r);
+    check(B, 'sem erros na página (arrasto da entrada)', p.errors.length === 0, p.errors);
+    await p.close();
+  } catch (e) { check(B, 'execução', false, e.message.split('\n')[0]); }
 };

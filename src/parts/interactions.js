@@ -118,8 +118,24 @@ export default {
           this.drag = false;
         }
         break;
+      case 'input':
+        this.connection = true;
+        this.connection_from = 'input';
+        if(this.node_selected != null) {
+          this.node_selected.classList.remove("selected");
+          this.node_selected = null;
+          this.dispatch('nodeUnselected', true);
+        }
+        if(this.connection_selected != null) {
+          this.connection_selected.classList.remove("selected");
+          this.removeReouteConnectionSelected();
+          this.connection_selected = null;
+        }
+        this.drawConnection(e.target);
+        break;
       case 'output':
         this.connection = true;
+        this.connection_from = 'output';
         if(this.node_selected != null) {
           this.node_selected.classList.remove("selected");
           this.node_selected = null;
@@ -367,22 +383,31 @@ export default {
     }
     if(this.connection === true) {
       this.setConnectionTarget(null);
-      if(ele_last && (ele_last.classList[0] === 'input' || (this.force_first_input && ele_last.closest(".drawflow-node") != null))) {
+      // Direction-aware: a drag started on an .input port looks for an
+      // .output port to land on (and the other way round)
+      var from_input = this.connection_from === 'input';
+      var target_port = from_input ? 'output' : 'input';
+      var force_first = from_input ? this.force_first_output : this.force_first_input;
+      if(ele_last && (ele_last.classList[0] === target_port || (force_first && ele_last.closest(".drawflow-node") != null))) {
 
-        if(ele_last.classList[0] !== 'input') {
-          var input_id = ele_last.closest(".drawflow-node").id;
-          var input_class = this.firstInputClass(input_id.slice(5));
+        if(ele_last.classList[0] !== target_port) {
+          var target_id = ele_last.closest(".drawflow-node").id;
+          var target_class = from_input ? this.firstOutputClass(target_id.slice(5)) : this.firstInputClass(target_id.slice(5));
 
 
        } else {
          // Fix connection;
-         var input_id = ele_last.parentElement.parentElement.id;
-         var input_class = ele_last.classList[1];
+         var target_id = ele_last.parentElement.parentElement.id;
+         var target_class = ele_last.classList[1];
        }
-       var output_id = this.ele_selected.parentElement.parentElement.id;
-       var output_class = this.ele_selected.classList[1];
+       var source_id = this.ele_selected.parentElement.parentElement.id;
+       var source_class = this.ele_selected.classList[1];
+       var output_id = from_input ? target_id : source_id;
+       var output_class = from_input ? target_class : source_class;
+       var input_id = from_input ? source_id : target_id;
+       var input_class = from_input ? source_class : target_class;
 
-        if(output_id !== input_id && input_class !== false) {
+        if(output_id !== input_id && input_class !== false && output_class !== false) {
 
           if(this.container.querySelectorAll('.connection.node_in_'+input_id+'.node_out_'+output_id+'.'+output_class+'.'+input_class).length === 0
             && this.validateConnection(output_id.slice(5), input_id.slice(5), output_class, input_class)) {
@@ -420,23 +445,26 @@ export default {
         // port. Besides the legacy 'connectionCancel', emit
         // 'connectionDrop' — a generic primitive for UIs that offer a
         // follow-up action at the drop point (e.g. Node-RED's
-        // quick-add). Carries the source port and the drop position in
-        // canvas world coordinates ((client - precanvasRect) / zoom,
-        // the same transform updateConnection uses); 'target' is the
+        // quick-add). Carries the source port (the output side for
+        // output-start drags, the input side for input-start drags —
+        // 'direction' says which) and the drop position in canvas
+        // world coordinates ((client - precanvasRect) / zoom, the
+        // same transform updateConnection uses); 'target' is the
         // element under the cursor, or null for touch drops outside
         // the document.
-        var drop_output_id = this.ele_selected.parentElement.parentElement.id.slice(5);
-        var drop_output_class = this.ele_selected.classList[1];
+        var drop_id = this.ele_selected.parentElement.parentElement.id.slice(5);
+        var drop_class = this.ele_selected.classList[1];
         var drop_precanvas = this.precanvas;
         var drop_zoom = this.zoom;
         var dropScaleX = drop_precanvas.clientWidth / (drop_precanvas.clientWidth * drop_zoom) || 0;
         var dropScaleY = drop_precanvas.clientHeight / (drop_precanvas.clientHeight * drop_zoom) || 0;
         var dropRect = drop_precanvas.getBoundingClientRect();
         this.dispatch('connectionDrop', {
-          output_id: drop_output_id,
-          output_class: drop_output_class,
-          input_id: null,
-          input_class: null,
+          direction: this.connection_from,
+          output_id: from_input ? null : drop_id,
+          output_class: from_input ? null : drop_class,
+          input_id: from_input ? drop_id : null,
+          input_class: from_input ? drop_class : null,
           x: e_pos_x * dropScaleX - dropRect.x * dropScaleX,
           y: e_pos_y * dropScaleY - dropRect.y * dropScaleY,
           client_x: e_pos_x,
@@ -452,6 +480,7 @@ export default {
     this.drag = false;
     this.drag_point = false;
     this.connection = false;
+    this.connection_from = 'output';
     this.ele_selected = null;
     this.editor_selected = false;
     this.container.classList.remove('drawflow-dragging', 'drawflow-panning');
