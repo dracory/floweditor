@@ -1,5 +1,65 @@
 // Modules, import and export
 export default {
+  /* Per-module metadata, same pattern as node groups (stable id +
+     mutable name): drawflow.drawflow[name].meta = {id, label, role,
+     enabled, env}. The id survives renameModule; the key stays a
+     mutable name. Rides along in export()/import() untouched;
+     legacy modules without meta get back-filled on import. */
+  moduleMetaDefaults(name) {
+    return {
+      id: this.getUuid(),
+      label: String(name),
+      role: 'flow',
+      enabled: true,
+      env: {}
+    };
+  },
+
+  /* Lazily creates/fills a module's meta, like groupStore does for
+     the groups map. Returns the live meta object (or null when the
+     module does not exist). */
+  ensureModuleMeta(moduleName) {
+    const mod = this.drawflow.drawflow[moduleName];
+    if (!mod) return null;
+    const defaults = this.moduleMetaDefaults(moduleName);
+    if (!mod.meta) mod.meta = {};
+    ['id', 'label', 'role', 'enabled', 'env'].forEach(k => {
+      if (mod.meta[k] === undefined) mod.meta[k] = defaults[k];
+    });
+    return mod.meta;
+  },
+
+  getModuleMeta(name) {
+    const mod = this.drawflow.drawflow[name];
+    if (!mod) return null;
+    return JSON.parse(JSON.stringify(this.ensureModuleMeta(name)));
+  },
+
+  setModuleMeta(name, patch) {
+    const meta = this.ensureModuleMeta(name);
+    if (!meta) return null;
+    patch = patch || {};
+    ['id', 'label', 'role', 'enabled', 'env'].forEach(k => {
+      if (patch[k] !== undefined) meta[k] = patch[k];
+    });
+    this.dispatch('moduleMetaChanged', this.getModuleMeta(name));
+    return this.getModuleMeta(name);
+  },
+
+  /* Module name by meta.id, mirror of getModuleFromGroupId. The id is
+     stable across renameModule; the returned name is the current key. */
+  getModuleById(id) {
+    var nameModule;
+    const editor = this.drawflow.drawflow;
+    Object.keys(editor).map(function(moduleName, index) {
+      const meta = editor[moduleName].meta;
+      if (meta && meta.id == id) {
+        nameModule = moduleName;
+      }
+    });
+    return nameModule;
+  },
+
   getModuleFromNodeId(id) {
     id = this.nodeKey(id);
     var nameModule;
@@ -15,7 +75,7 @@ export default {
   },
 
   addModule(name) {
-    this.drawflow.drawflow[name] =  { "data": {}, "groups": {} };
+    this.drawflow.drawflow[name] =  { "data": {}, "groups": {}, "meta": this.moduleMetaDefaults(name) };
     this.dispatch('moduleCreated', name);
   },
 
@@ -43,6 +103,8 @@ export default {
       return false;
     }
     const modules = {};
+    // The module object rides along untouched: meta.id (and the rest
+    // of meta) survives the rename. Display name = meta.label or key.
     for (const key in this.drawflow.drawflow) {
       modules[key === oldName ? newName : key] = this.drawflow.drawflow[key];
     }
@@ -60,7 +122,7 @@ export default {
       // Removing the module on screen: show another one (or an empty 'Home')
       const modules = Object.keys(this.drawflow.drawflow);
       if(modules.length === 0) {
-        this.drawflow.drawflow['Home'] = { "data": {}, "groups": {} };
+        this.drawflow.drawflow['Home'] = { "data": {}, "groups": {}, "meta": this.moduleMetaDefaults('Home') };
       }
       this.changeModule(modules.length > 0 ? modules[0] : 'Home');
     }
@@ -73,7 +135,9 @@ export default {
       this.resize_observer.observe(this.container);
     }
     this.precanvas.innerHTML = "";
-    this.drawflow.drawflow[this.module] =  { "data": {}, "groups": {} };
+    // Clearing the board keeps the module identity (meta.id survives)
+    const meta = (this.drawflow.drawflow[this.module] || {}).meta || this.moduleMetaDefaults(this.module);
+    this.drawflow.drawflow[this.module] =  { "data": {}, "groups": {}, "meta": meta };
   },
 
   clear () {
@@ -82,7 +146,7 @@ export default {
       this.resize_observer.observe(this.container);
     }
     this.precanvas.innerHTML = "";
-    this.drawflow = { "drawflow": { "Home": { "data": {}, "groups": {} }}};
+    this.drawflow = { "drawflow": { "Home": { "data": {}, "groups": {}, "meta": this.moduleMetaDefaults('Home') }}};
     this.module = 'Home';
   },
 
@@ -97,6 +161,8 @@ export default {
     this.clear();
     this.module = module;
     this.drawflow = JSON.parse(JSON.stringify(data));
+    // Legacy modules without meta get back-filled (id + defaults)
+    Object.keys(this.drawflow.drawflow).forEach(moduleName => this.ensureModuleMeta(moduleName));
     this.repairConnections();
     if(this.drawflow.drawflow[this.module] === undefined) {
       // Data without the current module (ex. without 'Home'): show the first one
@@ -104,7 +170,7 @@ export default {
       if(modules.length > 0) {
         this.module = modules[0];
       } else {
-        this.drawflow.drawflow[this.module] = { "data": {}, "groups": {} };
+        this.drawflow.drawflow[this.module] = { "data": {}, "groups": {}, "meta": this.moduleMetaDefaults(this.module) };
       }
     }
     this.load();

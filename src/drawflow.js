@@ -97,7 +97,11 @@ export default class Drawflow {
     this.render = render;
     this.drawflow = { "drawflow": { "Home": { "data": {}, "groups": {} }}};
     // Node groups: visual containers stored per module
-    // (drawflow.drawflow[module].groups). Rendered node box size used
+    // (drawflow.drawflow[module].groups). Each module also carries a
+    // meta object (drawflow.drawflow[module].meta = {id, label, role,
+    // enabled, env}) — the groups id+name pattern applied to modules:
+    // the key is a mutable name, meta.id is stable across renames.
+    // Rendered node box size used
     // for group bounds and drop-time membership checks.
     this.groupNodeSize = { w: 200, h: 90 };
     this.groupPaintEl = null;
