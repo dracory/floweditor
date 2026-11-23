@@ -115,6 +115,15 @@ export default class Drawflow {
     this.zoom_value = 0.1;
     this.zoom_last_value = 1;
     this.zoom_use_ctrl_key = true;
+    // Edge auto-pan: while dragging a node or a wire, a pointer held within
+    // autoPanEdgeMargin px of the container edge pans the canvas by
+    // autoPanSpeed px per animation frame (0 disables it). autoPanMode:
+    // 'all' (default), 'node' (only node drags) or 'connection' (only wires)
+    this.autoPanEdgeMargin = 40;
+    this.autoPanSpeed = 15;
+    this.autoPanMode = 'all';
+    this.auto_pan_raf = null;
+    this.auto_pan_delta = null;
 
     // Mobile
     this.evCache = new Array();

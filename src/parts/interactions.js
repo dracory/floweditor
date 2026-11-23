@@ -318,10 +318,15 @@ export default {
       this.mouse_x = e_pos_x;
       this.mouse_y = e_pos_y;
     }
+    // Edge auto-pan while a node or a wire drag is held near the container edge
+    if(this.drag || this.connection) {
+      this.autoPanUpdate(e_pos_x, e_pos_y);
+    }
     this.dispatch('mouseMove', {x: e_pos_x,y: e_pos_y });
   },
 
   dragEnd(e) {
+    this.autoPanStop();
     if (e.type === "touchend") {
       var e_pos_x = this.mouse_x;
       var e_pos_y = this.mouse_y;
