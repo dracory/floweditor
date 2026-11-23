@@ -13,6 +13,7 @@ import labels from './parts/labels.js';
 import history from './parts/history.js';
 import preview from './parts/preview.js';
 import groups from './parts/groups.js';
+import wireless from './parts/wireless.js';
 
 export default class Drawflow {
   constructor(container, render = null, parent = null) {
@@ -221,6 +222,9 @@ export default class Drawflow {
       this.updateConnectionNodes('node-'+key);
     }
 
+    // Signal badges on wireless ports (imported/restored data)
+    this.refreshWirelessPorts();
+
     this.renderGroups();
 
     const editor = this.drawflow.drawflow;
@@ -310,7 +314,7 @@ export default class Drawflow {
 }
 
 // Each file in parts/ adds its methods to the class, not enumerable like the ones written above
-[interactions, view, layout, curves, connections, arrows, reroute, nodes, ports, data, selection, labels, history, preview, groups].forEach(methods => {
+[interactions, view, layout, curves, connections, arrows, reroute, nodes, ports, data, selection, labels, history, preview, groups, wireless].forEach(methods => {
   Object.keys(methods).forEach(name => {
     Object.defineProperty(Drawflow.prototype, name, { value: methods[name], writable: true, configurable: true });
   });

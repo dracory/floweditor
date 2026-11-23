@@ -3,7 +3,7 @@
 const pw = require('playwright');
 const { results, check } = require('./helpers');
 
-const SUITES = ['drawing', 'upstream', 'features', 'pull-requests', 'node-tools', 'module-meta', 'autopan-zoomfit'].map(name => require('./suites/' + name));
+const SUITES = ['drawing', 'upstream', 'features', 'pull-requests', 'node-tools', 'module-meta', 'autopan-zoomfit', 'wireless'].map(name => require('./suites/' + name));
 
 async function run(name) {
   const browser = await pw[name].launch();

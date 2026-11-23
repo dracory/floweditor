@@ -220,6 +220,37 @@
   pointer-events: none;
 }
 
+/* Wireless (signal) connections: the port badge replaces the wire */
+.drawflow .drawflow-node .df-wireless-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: var(--drawflow-wireless-label-background, white);
+  color: var(--drawflow-wireless-label-color, black);
+  border: 1px solid var(--drawflow-wireless-label-border-color, #999);
+  cursor: pointer;
+  z-index: 2;
+}
+.drawflow .drawflow-node .output .df-wireless-label {
+  right: 28px;
+}
+.drawflow .drawflow-node .input .df-wireless-label {
+  left: 28px;
+}
+.drawflow .drawflow-node .df-wireless-label.df-wireless-label--connected {
+  background: var(--drawflow-wireless-connected-background, #43b993);
+  color: var(--drawflow-wireless-connected-color, white);
+  border-color: var(--drawflow-wireless-connected-border-color, #43b993);
+}
+.drawflow .drawflow-node .has-wireless {
+  border-color: var(--drawflow-wireless-port-border-color, #43b993);
+}
+
 /* renderPreview */
 .drawflow svg.drawflow-preview {
   position: static;

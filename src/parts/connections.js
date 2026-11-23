@@ -45,9 +45,15 @@ export default {
 
   },
 
-  addConnection(id_output, id_input, output_class, input_class) {
+  /* options (all optional):
+       signal: signal name stored on both sides of the connection. Signal
+         connections are wireless — no SVG wire is drawn; the ports show a
+         badge instead (see parts/wireless.js).
+       skipDom: only write the data, do not draw (implied by signal) */
+  addConnection(id_output, id_input, output_class, input_class, options = {}) {
     id_output = this.nodeKey(id_output);
     id_input = this.nodeKey(id_input);
+    const signal = typeof options.signal === 'string' && options.signal.trim() !== '' ? options.signal.trim() : null;
     var nodeOneModule = this.getModuleFromNodeId(id_output);
     var nodeTwoModule = this.getModuleFromNodeId(id_input);
     if(nodeOneModule === nodeTwoModule) {
@@ -63,10 +69,16 @@ export default {
       // Check connection exist
       if(exist === false && this.validateConnection(id_output, id_input, output_class, input_class)) {
         //Create Connection
-        this.drawflow.drawflow[nodeOneModule].data[id_output].outputs[output_class].connections.push( {"node": id_input.toString(), "output": input_class});
-        this.drawflow.drawflow[nodeOneModule].data[id_input].inputs[input_class].connections.push( {"node": id_output.toString(), "input": output_class});
+        var connectionOut = {"node": id_input.toString(), "output": input_class};
+        var connectionIn = {"node": id_output.toString(), "input": output_class};
+        if(signal !== null) {
+          connectionOut.signal = signal;
+          connectionIn.signal = signal;
+        }
+        this.drawflow.drawflow[nodeOneModule].data[id_output].outputs[output_class].connections.push(connectionOut);
+        this.drawflow.drawflow[nodeOneModule].data[id_input].inputs[input_class].connections.push(connectionIn);
 
-        if(this.module === nodeOneModule) {
+        if(this.module === nodeOneModule && signal === null && options.skipDom !== true) {
         //Draw connection
           var connection = document.createElementNS('http://www.w3.org/2000/svg',"svg");
           var path = document.createElementNS('http://www.w3.org/2000/svg',"path");
@@ -85,7 +97,16 @@ export default {
           this.updateConnectionNodes('node-'+id_input);
         }
 
+        if(signal !== null) {
+          // Wireless: both ports adopt the signal name and show its badge
+          this.setPortSignal(id_output, output_class, 'output', signal, true);
+          this.setPortSignal(id_input, input_class, 'input', signal, true);
+        }
+
         this.dispatch('connectionCreated', { output_id: id_output, input_id: id_input, output_class:  output_class, input_class: input_class});
+        if(signal !== null) {
+          this.dispatch('wirelessConnected', { output_id: id_output, input_id: id_input, output_class: output_class, input_class: input_class, signal: signal });
+        }
       }
     }
   },
@@ -459,15 +480,25 @@ export default {
     const data = this.drawflow.drawflow[moduleName].data;
     const outputs = data[id_output] && data[id_output].outputs[output_class] ? data[id_output].outputs[output_class].connections : [];
     const index_out = outputs.findIndex(item => String(item.node) === String(id_input) && item.output === input_class);
+    var signal = null;
     if(index_out > -1) {
+      signal = outputs[index_out].signal || null;
       outputs.splice(index_out, 1);
     }
     const inputs = data[id_input] && data[id_input].inputs[input_class] ? data[id_input].inputs[input_class].connections : [];
     const index_in = inputs.findIndex(item => String(item.node) === String(id_output) && item.input === output_class);
     if(index_in > -1) {
+      signal = signal || inputs[index_in].signal || null;
       inputs.splice(index_in, 1);
     }
     this.removeOrphanLabels();
+    if(index_out > -1 || index_in > -1) {
+      // A removed signal connection may leave a port badge in 'waiting' state
+      this.refreshWirelessPorts();
+    }
+    if(signal !== null) {
+      this.dispatch('wirelessDisconnected', { output_id: String(id_output), input_id: String(id_input), output_class: output_class, input_class: input_class, signal: signal });
+    }
   },
 
   canRemoveConnection(id_output, id_input, output_class, input_class) {
@@ -506,8 +537,11 @@ export default {
       if(exists > -1) {
 
         if(this.module === nodeOneModule) {
-          // In same module with view.
-          this.container.querySelector('.connection.node_in_node-'+id_input+'.node_out_node-'+id_output+'.'+output_class+'.'+input_class).remove();
+          // In same module with view. Wireless (signal) connections have no svg element.
+          const ele = this.container.querySelector('.connection.node_in_node-'+id_input+'.node_out_node-'+id_output+'.'+output_class+'.'+input_class);
+          if(ele) {
+            ele.remove();
+          }
         }
 
         this.removeConnectionData(nodeOneModule, id_output, output_class, id_input, input_class);
@@ -531,6 +565,22 @@ export default {
       elems[i].remove();
       this.removeConnectionData(this.module, listclass[2].slice(14), listclass[3], listclass[1].slice(13), listclass[4]);
       this.dispatch('connectionRemoved', { output_id: listclass[2].slice(14), input_id: listclass[1].slice(13), output_class: listclass[3], input_class: listclass[4] } );
+    }
+    // Wireless (signal) connections have no .connection element: remove what is left in the data
+    const data = this.drawflow.drawflow[this.module].data[id.slice(5)];
+    if(data) {
+      Object.keys(data.outputs || {}).forEach(output_class => {
+        data.outputs[output_class].connections.slice().forEach(connection => {
+          this.removeConnectionData(this.module, id.slice(5), output_class, connection.node, connection.output);
+          this.dispatch('connectionRemoved', { output_id: id.slice(5), input_id: connection.node, output_class: output_class, input_class: connection.output });
+        });
+      });
+      Object.keys(data.inputs || {}).forEach(input_class => {
+        data.inputs[input_class].connections.slice().forEach(connection => {
+          this.removeConnectionData(this.module, connection.node, connection.input, id.slice(5), input_class);
+          this.dispatch('connectionRemoved', { output_id: connection.node, input_id: id.slice(5), output_class: connection.input, input_class: input_class });
+        });
+      });
     }
   },
 };

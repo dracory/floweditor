@@ -265,6 +265,12 @@ export default {
       inputs.appendChild(input);
       Object.keys(dataNode.inputs[input_item].connections).map(function(output_item, index) {
 
+        // Wireless (signal) connections have no svg wire; the ports show a badge
+        if(typeof dataNode.inputs[input_item].connections[output_item].signal === 'string'
+          && dataNode.inputs[input_item].connections[output_item].signal.trim() !== '') {
+          return;
+        }
+
         var connection = document.createElementNS('http://www.w3.org/2000/svg',"svg");
         var path = document.createElementNS('http://www.w3.org/2000/svg',"path");
         path.classList.add("main-path");
